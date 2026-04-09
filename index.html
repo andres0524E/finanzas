@@ -95,36 +95,38 @@
     </div>
 
     <div id="modal-ajustes" class="modal-overlay">
-        <div class="modal-content">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                <h2 style="margin: 0; font-size: 1.2rem;">Fechas de Tarjetas</h2>
+        <div class="modal-content" style="max-width: 320px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <h2 style="margin: 0; font-size: 1.2rem;">Fechas</h2>
                 <button class="btn-action-fa btn-edit-fa" onclick="cerrarModalAjustes()"><i class="fa-solid fa-xmark"></i></button>
             </div>
-            <div class="form-group">
-                <label>Día de Corte (Ej. 28):</label>
-                <input type="number" id="input-dia-corte" class="form-input mb-3" placeholder="28" min="1" max="31">
+            <div class="form-row mb-3">
+                <div style="flex: 1;">
+                    <label style="font-size: 0.8rem; color: var(--text-secondary); font-weight: bold; margin-bottom: 5px; display: block;">Día de Corte:</label>
+                    <input type="number" id="input-dia-corte" class="form-input" placeholder="28" min="1" max="31">
+                </div>
+                <div style="flex: 1;">
+                    <label style="font-size: 0.8rem; color: var(--text-secondary); font-weight: bold; margin-bottom: 5px; display: block;">Día Límite:</label>
+                    <input type="number" id="input-dia-limite" class="form-input" placeholder="8" min="1" max="31">
+                </div>
             </div>
-            <div class="form-group">
-                <label>Día Límite de Pago (Mes sig. Ej. 8):</label>
-                <input type="number" id="input-dia-limite" class="form-input mb-3" placeholder="8" min="1" max="31">
-            </div>
-            <button class="btn-auth" onclick="guardarAjustes()">Guardar Fechas</button>
+            <button class="btn-auth" onclick="guardarAjustes()">Guardar</button>
         </div>
     </div>
 
     <div id="modal-ingreso" class="modal-overlay">
-        <div class="modal-content">
+        <div class="modal-content" style="max-width: 320px;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                 <h2 style="margin: 0; font-size: 1.2rem;">Ingreso Semanal</h2>
                 <button class="btn-action-fa btn-edit-fa" onclick="cerrarModalIngreso()"><i class="fa-solid fa-xmark"></i></button>
             </div>
-            <input type="number" id="input-ingreso-semanal" class="form-input mb-3" placeholder="$1000.00">
-            <button class="btn-auth" onclick="guardarIngreso()">Actualizar Ingreso</button>
+            <input type="number" id="input-ingreso-semanal" class="form-input mb-3" placeholder="$1000.00" onkeypress="handleIngresoEnter(event)">
+            <button class="btn-auth" onclick="guardarIngreso()">Guardar</button>
         </div>
     </div>
 
     <div id="modal-confirmacion" class="modal-overlay">
-        <div class="modal-content" style="text-align: center;">
+        <div class="modal-content" style="text-align: center; max-width: 320px;">
             <i class="fa-solid fa-triangle-exclamation text-yellow" style="font-size: 3rem; margin-bottom: 15px;"></i>
             <h2 style="margin: 0 0 10px 0; font-size: 1.2rem;" id="confirm-title">¿Estás seguro?</h2>
             <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 20px;" id="confirm-msg">Esta acción no se puede deshacer.</p>

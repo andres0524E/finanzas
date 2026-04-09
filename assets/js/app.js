@@ -14,17 +14,25 @@ themeBtn.addEventListener('click', () => {
     localStorage.setItem(THEME_KEY, newTheme); 
 });
 
-// --- 2. BASE DE DATOS LOCAL, FECHAS Y RESCATE ---
-const DB_KEY_DATA = 'miGestorFinancieroData_v22'; 
+// --- 2. BASE DE DATOS LOCAL, FECHAS Y RESCATE MÁXIMO ---
+const DB_KEY_DATA = 'miGestorFinancieroData_v23'; // Versión Segura
 const DB_KEY_INCOME = 'miGestorIngreso_v2'; 
 const DB_KEY_FIJOS = 'miGestorFijos_v2'; 
 const DB_KEY_HISTORY = 'miGestorHistory_v2'; 
 
-let ingresoSemanalBase = parseFloat(localStorage.getItem(DB_KEY_INCOME)) || 1000.00; 
-let gastosFijos = JSON.parse(localStorage.getItem(DB_KEY_FIJOS)) || [];
-let historialData = JSON.parse(localStorage.getItem(DB_KEY_HISTORY)) || [];
-let financeData = [];
+let ingresoSemanalBase = parseFloat(localStorage.getItem(DB_KEY_INCOME));
+if(isNaN(ingresoSemanalBase)) ingresoSemanalBase = 1000.00; 
 
+// Protección extrema para evitar que el reduce() falle
+let gastosFijos = [];
+try { gastosFijos = JSON.parse(localStorage.getItem(DB_KEY_FIJOS)) || []; } catch(e) {}
+if (!Array.isArray(gastosFijos)) gastosFijos = [];
+
+let historialData = [];
+try { historialData = JSON.parse(localStorage.getItem(DB_KEY_HISTORY)) || []; } catch(e) {}
+if (!Array.isArray(historialData)) historialData = [];
+
+let financeData = [];
 let activeTabState = {}; 
 let editingCardIndex = null; 
 let accordionState = {}; 
@@ -65,68 +73,89 @@ function generateInitialData() {
 function syncMonths() {
     let savedData = localStorage.getItem(DB_KEY_DATA);
     
+    // Rescate Robustoc Extremo
     if (!savedData) {
-        for (let i = 21; i >= 14; i--) {
+        for (let i = 22; i >= 7; i--) {
             let rescate = localStorage.getItem(`miGestorFinancieroData_v${i}`);
             if (rescate && rescate.length > 20) { savedData = rescate; break; }
         }
     }
 
     if (savedData) { try { financeData = JSON.parse(savedData); } catch(e) { financeData = []; } }
+    if (!Array.isArray(financeData)) financeData = [];
 
     const now = new Date();
     const currentYear = now.getFullYear();
     const currentMonthNum = now.getMonth() + 1; 
 
-    if (!financeData || !Array.isArray(financeData) || financeData.length === 0) {
+    if (financeData.length === 0) {
         financeData = generateInitialData();
     } else {
+        // TRADUCTOR BLINDADO
         financeData.forEach((d, i) => {
+            if(!d || typeof d !== 'object') d = {}; 
+            
             if(!d.id) {
                 let m = currentMonthNum + i;
                 let y = currentYear + Math.floor((m-1)/12);
                 m = ((m-1)%12)+1;
                 d.id = `${y}-${m.toString().padStart(2,'0')}`;
             }
-            if(!d.nombre || d.nombre === "undefined" || d.nombre === "") {
-                let m = parseInt(d.id.split('-')[1]);
-                d.nombre = getMonthName(m);
+            
+            // Limpieza y seguridad en el nombre
+            if(!d.nombre || String(d.nombre).includes("undefined") || String(d.nombre).trim() === "") {
+                let mStr = String(d.id).split('-')[1];
+                let mNum = mStr ? parseInt(mStr) : currentMonthNum;
+                d.nombre = getMonthName(mNum);
             }
-            d.nombre = d.nombre.replace(' (Actual)', '').trim();
+            d.nombre = String(d.nombre).replace(/\s*\(Actual\)/g, '').trim();
+            
+            // Seguridad en Arrays
             if (!d.deudas) d.deudas = { 'Nu': nuSchedule[d.id] || 0, 'BBVA': 0, 'Mercado Pago': 0 };
             else if (d.deudas['Nu'] === 0 && nuSchedule[d.id]) d.deudas['Nu'] = nuSchedule[d.id];
+            
+            if (!Array.isArray(d.gastosPersonales)) d.gastosPersonales = [];
+            if (!Array.isArray(d.pagos)) d.pagos = [];
         });
 
         // LIMPIEZA INTELIGENTE POR LÍMITE DE PAGO
-        while(financeData.length > 0) {
-            let first = financeData[0];
-            let parts = first.id.split('-');
-            let y = parseInt(parts[0]);
-            let m = parseInt(parts[1]); 
-            
-            // Límite: Día 8 del MES SIGUIENTE al facturado
-            let limiteDate = new Date(y, m, diaLimite, 23, 59, 59);
+        try {
+            while(financeData.length > 0) {
+                let first = financeData[0];
+                if (!first || !first.id) break;
+                
+                let parts = String(first.id).split('-');
+                let y = parseInt(parts[0]);
+                let m = parseInt(parts[1]); 
+                if (isNaN(y) || isNaN(m)) break;
 
-            if (first.pagado === true || now > limiteDate) {
-                let dropped = financeData.shift();
-                historialData.push(dropped); 
-                localStorage.setItem(DB_KEY_HISTORY, JSON.stringify(historialData));
-            } else {
-                break; 
+                let limiteDate = new Date(y, m, diaLimite, 23, 59, 59);
+
+                if (first.pagado === true || now > limiteDate) {
+                    let dropped = financeData.shift();
+                    historialData.push(dropped); 
+                    localStorage.setItem(DB_KEY_HISTORY, JSON.stringify(historialData));
+                } else {
+                    break; 
+                }
             }
-        }
+        } catch (e) { console.error("Error limpiando meses", e); }
         
-        while(financeData.length < 10) {
-            if(financeData.length === 0) {
-                financeData.push(createMonthObject(currentYear, currentMonthNum));
-            } else {
-                let lastItem = financeData[financeData.length - 1];
-                let parts = lastItem.id.split('-');
-                let y = parseInt(parts[0]); let m = parseInt(parts[1]) + 1;
-                if (m > 12) { y++; m = 1; }
-                financeData.push(createMonthObject(y, m));
+        // RELLENAR MESES
+        try {
+            while(financeData.length < 10) {
+                if(financeData.length === 0) {
+                    financeData.push(createMonthObject(currentYear, currentMonthNum));
+                } else {
+                    let lastItem = financeData[financeData.length - 1];
+                    let parts = String(lastItem.id).split('-');
+                    let y = parseInt(parts[0]) || currentYear; 
+                    let m = (parseInt(parts[1]) || currentMonthNum) + 1;
+                    if (m > 12) { y++; m = 1; }
+                    financeData.push(createMonthObject(y, m));
+                }
             }
-        }
+        } catch(e) { console.error("Error rellenando meses", e); }
     }
     saveData();
 }
@@ -160,7 +189,7 @@ window.importData = function(event) {
     reader.readAsText(file);
 }
 
-// --- SISTEMA DE MODAL UNIVERSAL PARA CONFIRMACIONES ---
+// SISTEMA DE MODAL UNIVERSAL PARA CONFIRMACIONES
 let actionToConfirm = null;
 
 function abrirModalConfirmacion(titulo, mensaje, actionCallback, colorBoton = 'var(--accent-purple)') {
@@ -181,7 +210,7 @@ document.getElementById('btn-confirm-action').addEventListener('click', () => {
     cerrarModalConfirmacion();
 });
 
-// --- AJUSTES E INGRESOS MODALES ---
+// AJUSTES E INGRESOS MODALES
 window.abrirModalAjustes = function() {
     document.getElementById('input-dia-corte').value = diaCorte;
     document.getElementById('input-dia-limite').value = diaLimite;
@@ -202,6 +231,7 @@ window.guardarAjustes = function() {
 window.abrirModalIngreso = function() {
     document.getElementById('input-ingreso-semanal').value = ingresoSemanalBase;
     document.getElementById('modal-ingreso').classList.add('active');
+    setTimeout(() => { document.getElementById('input-ingreso-semanal').focus(); }, 100);
 }
 window.cerrarModalIngreso = function() { document.getElementById('modal-ingreso').classList.remove('active'); }
 window.guardarIngreso = function() {
@@ -211,6 +241,14 @@ window.guardarIngreso = function() {
         localStorage.setItem(DB_KEY_INCOME, ingresoSemanalBase);
         renderCards(); cerrarModalIngreso();
     } else { alert("Monto inválido."); }
+}
+window.handleIngresoEnter = function(e) { if(e.key === 'Enter') guardarIngreso(); }
+
+window.marcarMesPagado = function(idx, mName) {
+    abrirModalConfirmacion(`Marcar ${mName} Pagado`, "Este mes se moverá a tu historial permanentemente.", () => {
+        financeData[idx].pagado = true;
+        saveData(); syncMonths(); renderCards();
+    }, "var(--accent-green)");
 }
 
 // --- 4. RENDERIZADO PRINCIPAL DE TARJETAS ---
@@ -223,17 +261,28 @@ function renderCards() {
     const container = document.getElementById('months-container');
     container.innerHTML = ''; 
     document.getElementById('ingreso-semanal-display').innerText = formatMoney(ingresoSemanalBase);
-    document.getElementById('gastos-fijos-display').innerText = formatMoney(gastosFijos.reduce((acc, f) => acc + f.monto, 0));
+    
+    // Suma segura de fijos
+    let sumaFijos = 0;
+    if(Array.isArray(gastosFijos)) {
+        sumaFijos = gastosFijos.reduce((acc, f) => acc + (parseFloat(f.monto) || 0), 0);
+    }
+    document.getElementById('gastos-fijos-display').innerText = formatMoney(sumaFijos);
 
     let sumaDeTodoElAno = 0;
     const ingresoMensual = ingresoSemanalBase * 4;
     const now = new Date();
 
+    if(!Array.isArray(financeData)) return;
+
     financeData.forEach((data, index) => {
         let sumaGastosMes = 0; let sumaPagosMes = 0;
-        let sumaTodasTarjetasMes = (data.deudas['Nu'] || 0) + (data.deudas['BBVA'] || 0) + (data.deudas['Mercado Pago'] || 0);
+        let sumaTodasTarjetasMes = (data.deudas && data.deudas['Nu'] ? data.deudas['Nu'] : 0) + 
+                                   (data.deudas && data.deudas['BBVA'] ? data.deudas['BBVA'] : 0) + 
+                                   (data.deudas && data.deudas['Mercado Pago'] ? data.deudas['Mercado Pago'] : 0);
+                                   
         let currentTab = activeTabState[index] || 'Nu';
-        let deudaTabActual = data.deudas[currentTab] || 0;
+        let deudaTabActual = (data.deudas && data.deudas[currentTab]) ? data.deudas[currentTab] : 0;
 
         let logoSrc = 'assets/img/Nu.jpg'; let textClass = 'text-Nu';
         if(currentTab === 'BBVA') { logoSrc = 'assets/img/bbva.png'; textClass = 'text-BBVA';}
@@ -266,24 +315,31 @@ function renderCards() {
         }
 
         let listaGastosHtml = '';
-        gastosFijos.forEach((fijo, fIdx) => {
-            sumaGastosMes += fijo.monto;
-            listaGastosHtml += `<div class="list-item" style="opacity: 0.85;"><span><i class="fa-solid fa-repeat text-yellow" style="margin-right: 8px;"></i>${fijo.concepto}</span><div style="display:flex; align-items:center;"><strong>${formatMoney(fijo.monto)}</strong><button class="btn-delete-fa" onclick="eliminarGastoFijo(${fIdx})"><i class="fa-solid fa-trash-can"></i></button></div></div>`;
-        });
-        data.gastosPersonales.forEach((gasto, gIdx) => {
-            sumaGastosMes += gasto.monto;
-            listaGastosHtml += `<div class="list-item"><span><i class="fa-solid fa-cart-shopping text-red" style="margin-right: 8px;"></i>${gasto.concepto}</span><div style="display: flex; align-items: center;"><strong>${formatMoney(gasto.monto)}</strong><button class="btn-delete-fa" onclick="promptEliminarGasto(${index}, ${gIdx})"><i class="fa-solid fa-trash-can"></i></button></div></div>`;
-        });
+        if(Array.isArray(gastosFijos)) {
+            gastosFijos.forEach((fijo, fIdx) => {
+                sumaGastosMes += (parseFloat(fijo.monto) || 0);
+                listaGastosHtml += `<div class="list-item" style="opacity: 0.85;"><span><i class="fa-solid fa-repeat text-yellow" style="margin-right: 8px;"></i>${fijo.concepto}</span><div style="display:flex; align-items:center;"><strong>${formatMoney(fijo.monto)}</strong><button class="btn-delete-fa" onclick="promptEliminarGastoFijo(${fIdx})"><i class="fa-solid fa-trash-can"></i></button></div></div>`;
+            });
+        }
+        
+        if(Array.isArray(data.gastosPersonales)) {
+            data.gastosPersonales.forEach((gasto, gIdx) => {
+                sumaGastosMes += (parseFloat(gasto.monto) || 0);
+                listaGastosHtml += `<div class="list-item"><span><i class="fa-solid fa-cart-shopping text-red" style="margin-right: 8px;"></i>${gasto.concepto}</span><div style="display: flex; align-items: center;"><strong>${formatMoney(gasto.monto)}</strong><button class="btn-delete-fa" onclick="promptEliminarGasto(${index}, ${gIdx})"><i class="fa-solid fa-trash-can"></i></button></div></div>`;
+            });
+        }
         if (!listaGastosHtml) listaGastosHtml = '<div style="text-align: center; color: var(--text-secondary); font-size: 0.85rem;">Sin gastos este mes</div>';
 
         let listaPagosHtml = '';
-        data.pagos.forEach((pago, pIdx) => {
-            sumaPagosMes += pago.monto;
-            listaPagosHtml += `<div class="list-item"><span><i class="fa-solid fa-circle-dollar-to-slot text-green" style="margin-right: 8px;"></i>Pago #${pIdx + 1}</span><div style="display: flex; align-items: center;"><strong class="text-green">- ${formatMoney(pago.monto)}</strong><button class="btn-delete-fa" onclick="promptEliminarPago(${index}, ${pIdx})"><i class="fa-solid fa-trash-can"></i></button></div></div>`;
-        });
+        if(Array.isArray(data.pagos)) {
+            data.pagos.forEach((pago, pIdx) => {
+                sumaPagosMes += (parseFloat(pago.monto) || 0);
+                listaPagosHtml += `<div class="list-item"><span><i class="fa-solid fa-circle-dollar-to-slot text-green" style="margin-right: 8px;"></i>Pago #${pIdx + 1}</span><div style="display: flex; align-items: center;"><strong class="text-green">- ${formatMoney(pago.monto)}</strong><button class="btn-delete-fa" onclick="promptEliminarPago(${index}, ${pIdx})"><i class="fa-solid fa-trash-can"></i></button></div></div>`;
+            });
+        }
         if (!listaPagosHtml) listaPagosHtml = '<div style="text-align: center; color: var(--text-secondary); font-size: 0.85rem;">Aún no hay abonos</div>';
 
-        sumaDeTodoElAno += (sumaTodasTarjetasMes + data.gastosPersonales.reduce((a,g)=>a+g.monto,0) - sumaPagosMes);
+        sumaDeTodoElAno += (sumaTodasTarjetasMes + (Array.isArray(data.gastosPersonales) ? data.gastosPersonales.reduce((a,g)=>a+(parseFloat(g.monto)||0),0) : 0) - sumaPagosMes);
         
         let totalEsperadoMes = sumaTodasTarjetasMes + sumaGastosMes;
         let totalRestanteMes = Math.max(0, totalEsperadoMes - sumaPagosMes); 
@@ -298,9 +354,9 @@ function renderCards() {
         }
 
         let partesId = (data.id || "").split('-');
-        let yNum = parseInt(partesId[0]);
-        let mNum = parseInt(partesId[1]);
-        let mName = data.nombre;
+        let yNum = parseInt(partesId[0]) || now.getFullYear();
+        let mNum = parseInt(partesId[1]) || (now.getMonth() + 1);
+        let mName = data.nombre || "Mes";
         let nombreBase = `${mName} ${yNum}`;
         let tituloMesDisplay = index === 0 ? `${nombreBase} (Actual)` : nombreBase;
         
@@ -319,12 +375,12 @@ function renderCards() {
                 }
             }
 
-            // BOTÓN MARCAR COMO PAGADO (Ventana Inteligente)
-            let corteDate = new Date(yNum, mNum - 1, diaCorte); // Corte este mes
-            let limiteDate = new Date(yNum, mNum, diaLimite, 23, 59, 59); // Límite siguiente mes
+            // BOTÓN MARCAR COMO PAGADO (Solo aparece si la fecha de hoy coincide)
+            let corteDate = new Date(yNum, mNum - 1, diaCorte); 
+            let limiteDate = new Date(yNum, mNum, diaLimite, 23, 59, 59); 
             
             if (now >= corteDate && now <= limiteDate) {
-                btnPagarHtml = `<button class="btn-pay-month" onclick="promptMarcarMes(${index}, '${mName}')"><i class="fa-solid fa-check-double"></i> Marcar ${mName} como Pagado</button>`;
+                btnPagarHtml = `<button class="btn-pay-month" onclick="marcarMesPagado(${index}, '${mName}')"><i class="fa-solid fa-check-double"></i> Marcar ${mName} como Pagado</button>`;
             }
         }
 
@@ -382,9 +438,10 @@ function renderCards() {
     document.getElementById('total-deuda-global').innerText = formatMoney(sumaDeTodoElAno);
 }
 
-// --- 5. LOGICA DE MODALES DE TRANSACCIÓN Y CONFIRMACIONES ---
+// --- 5. LOGICA DEL MODAL DE TRANSACCIÓN Y ENTER KEY ---
 window.abrirModalDesdeSeccion = function(mesIdx, tipo) {
     activeTransactionMonth = mesIdx;
+    
     let mName = financeData[mesIdx].nombre;
     let yStr = (financeData[mesIdx].id || "").split('-')[0] || new Date().getFullYear();
     let name = mesIdx === 0 ? `${mName} ${yStr} (Actual)` : `${mName} ${yStr}`;
@@ -395,18 +452,25 @@ window.abrirModalDesdeSeccion = function(mesIdx, tipo) {
     currentTransactionType = tipo;
     
     document.getElementById('modal-transaccion').classList.add('active');
-    setTimeout(() => { if(tipo === 'gasto') document.getElementById('trans-concepto').focus(); else document.getElementById('trans-monto-pago').focus(); }, 100);
+    
+    setTimeout(() => {
+        if(tipo === 'gasto') document.getElementById('trans-concepto').focus();
+        else document.getElementById('trans-monto-pago').focus();
+    }, 100);
 }
 
 window.cerrarModalTransaccion = function() { document.getElementById('modal-transaccion').classList.remove('active'); }
 
 window.procesarTransaccionModal = function() {
-    if(isProcessing) return; isProcessing = true;
+    if(isProcessing) return;
+    isProcessing = true;
+
     const idx = activeTransactionMonth;
 
     if (currentTransactionType === 'pago') {
         const monto = parseFloat(document.getElementById('trans-monto-pago').value);
         if (isNaN(monto) || monto <= 0) { alert("Ingresa una cantidad válida"); isProcessing = false; return; }
+        
         financeData[idx].pagos.push({ monto: monto });
         document.getElementById('trans-monto-pago').value = '';
         accordionState[`pagos-${idx}`] = true;
@@ -414,9 +478,11 @@ window.procesarTransaccionModal = function() {
         const concepto = document.getElementById('trans-concepto').value.trim() || 'Gasto';
         const monto = parseFloat(document.getElementById('trans-monto-gasto').value);
         const msi = parseInt(document.getElementById('trans-msi').value) || 1;
+        
         if (isNaN(monto) || monto <= 0) { alert("Ingresa una cantidad válida"); isProcessing = false; return; }
 
         const montoMensual = monto / msi;
+
         for (let i = 0; i < msi; i++) {
             let tIdx = idx + i;
             while(tIdx >= financeData.length) {
@@ -428,39 +494,38 @@ window.procesarTransaccionModal = function() {
             let etq = msi > 1 ? `${concepto} (${i+1}/${msi})` : concepto;
             financeData[tIdx].gastosPersonales.push({ concepto: etq, monto: montoMensual });
         }
-        document.getElementById('trans-concepto').value = ''; document.getElementById('trans-monto-gasto').value = ''; document.getElementById('trans-msi').value = '1';
+        
+        document.getElementById('trans-concepto').value = '';
+        document.getElementById('trans-monto-gasto').value = '';
+        document.getElementById('trans-msi').value = '1';
         accordionState[`gastos-${idx}`] = true;
     }
     
     saveData(); renderCards(); cerrarModalTransaccion();
-    setTimeout(() => { isProcessing = false; }, 300); 
+    setTimeout(() => { isProcessing = false; }, 300);
 }
+
 window.handleModalEnter = function(e) { if (e.key === 'Enter') procesarTransaccionModal(); }
 window.handleCardEnter = function(e, mesIdx, banco) { if (e.key === 'Enter') guardarEdicionTarjeta(mesIdx, banco); }
 
+// --- 6. FUNCIONES DE EDICIÓN Y ELIMINACIÓN DE TARJETAS ---
 window.cambiarTab = function(mesIdx, tabName) { activeTabState[mesIdx] = tabName; editingCardIndex = null; renderCards(); }
 window.editarTarjeta = function(mesIdx) { editingCardIndex = mesIdx; renderCards(); }
 window.cancelarEdicionTarjeta = function() { editingCardIndex = null; renderCards(); }
 window.guardarEdicionTarjeta = function(mesIdx, banco) {
-    const v = parseFloat(document.getElementById(`edit-monto-${mesIdx}`).value);
+    const input = document.getElementById(`edit-monto-${mesIdx}`);
+    const v = parseFloat(input.value);
     if(!isNaN(v) && v >= 0) { financeData[mesIdx].deudas[banco] = v; saveData(); editingCardIndex = null; renderCards(); }
 }
-
-// CONFIRMACIONES ELEGANTES
-window.promptEliminarGasto = function(m, i) {
+window.promptEliminarGasto = function(m, i) { 
     abrirModalConfirmacion("Eliminar Concepto", "¿Estás seguro de borrar este gasto?", () => {
-        financeData[m].gastosPersonales.splice(i, 1); saveData(); renderCards();
+        financeData[m].gastosPersonales.splice(i, 1); saveData(); renderCards(); 
     }, "var(--accent-red)");
 }
-window.promptEliminarPago = function(m, i) {
+window.promptEliminarPago = function(m, i) { 
     abrirModalConfirmacion("Eliminar Abono", "¿Estás seguro de borrar este abono?", () => {
-        financeData[m].pagos.splice(i, 1); saveData(); renderCards();
+        financeData[m].pagos.splice(i, 1); saveData(); renderCards(); 
     }, "var(--accent-red)");
-}
-window.promptMarcarMes = function(idx, mName) {
-    abrirModalConfirmacion(`Marcar ${mName} Pagado`, "Este mes se moverá a tu historial permanentemente.", () => {
-        financeData[idx].pagado = true; saveData(); syncMonths(); renderCards();
-    }, "var(--accent-green)");
 }
 
 // --- 7. MODALES SECUNDARIOS (FIJOS E HISTORIAL) ---
@@ -470,7 +535,7 @@ const modalHistorial = document.getElementById('modal-historial');
 window.abrirModalFijos = function() {
     const l = document.getElementById('lista-fijos-modal'); l.innerHTML = '';
     if(gastosFijos.length===0) l.innerHTML = '<div style="text-align:center; color: var(--text-secondary); padding: 15px 0;">Sin fijos</div>';
-    gastosFijos.forEach((f, i) => l.innerHTML += `<div class="list-item"><span><i class="fa-solid fa-repeat text-yellow"></i> ${f.concepto}</span><div><strong>${formatMoney(f.monto)}</strong><button class="btn-delete-fa" onclick="eliminarGastoFijo(${i})"><i class="fa-solid fa-trash-can"></i></button></div></div>`);
+    gastosFijos.forEach((f, i) => l.innerHTML += `<div class="list-item"><span><i class="fa-solid fa-repeat text-yellow"></i> ${f.concepto}</span><div><strong>${formatMoney(f.monto)}</strong><button class="btn-delete-fa" onclick="promptEliminarGastoFijo(${i})"><i class="fa-solid fa-trash-can"></i></button></div></div>`);
     modalFijos.classList.add('active');
 }
 window.cerrarModalFijos = function() { modalFijos.classList.remove('active'); renderCards(); }
@@ -478,17 +543,18 @@ window.agregarGastoFijo = function() {
     const c = document.getElementById('nuevo-fijo-concepto').value.trim(); const m = parseFloat(document.getElementById('nuevo-fijo-monto').value);
     if(c && m>0){ gastosFijos.push({concepto:c, monto:m}); saveData(); document.getElementById('nuevo-fijo-concepto').value=''; document.getElementById('nuevo-fijo-monto').value=''; abrirModalFijos(); }
 }
-window.eliminarGastoFijo = function(i) { 
+window.promptEliminarGastoFijo = function(i) {
     abrirModalConfirmacion("Eliminar Suscripción", "¿Dejar de inyectar este gasto en los meses?", () => {
         gastosFijos.splice(i, 1); saveData(); abrirModalFijos();
     }, "var(--accent-red)");
 }
+document.getElementById('nuevo-fijo-monto').addEventListener('keypress', (e) => { if(e.key === 'Enter') agregarGastoFijo(); });
 
 window.abrirModalHistorial = function() {
     const l = document.getElementById('lista-historial-modal'); l.innerHTML = '';
     if(historialData.length===0) l.innerHTML = '<div style="text-align:center; color: var(--text-secondary); padding: 15px 0;">Aún no hay meses pasados.</div>';
     [...historialData].reverse().forEach(mes => {
-        let dR = Math.max(0, (mes.deudas['Nu']||0)+(mes.deudas['BBVA']||0)+(mes.deudas['Mercado Pago']||0) + mes.gastosPersonales.reduce((a,c)=>a+c.monto,0) - mes.pagos.reduce((a,c)=>a+c.monto,0));
+        let dR = Math.max(0, (mes.deudas['Nu']||0)+(mes.deudas['BBVA']||0)+(mes.deudas['Mercado Pago']||0) + (Array.isArray(mes.gastosPersonales) ? mes.gastosPersonales.reduce((a,c)=>a+(parseFloat(c.monto)||0),0) : 0) - (Array.isArray(mes.pagos) ? mes.pagos.reduce((a,c)=>a+(parseFloat(c.monto)||0),0) : 0));
         let mName = mes.nombre && mes.nombre !== "undefined" ? mes.nombre : (mes.mes || "Mes");
         let mYear = mes.id ? mes.id.split('-')[0] : '';
         l.innerHTML += `<div class="inner-section" style="border: 1px solid var(--border-color); margin-bottom: 10px;"><div style="display:flex; justify-content: space-between; font-weight: bold; margin-bottom: 5px;"><span>${mName} ${mYear}</span><span class="text-purple">${formatMoney(dR)} Restante</span></div></div>`;
