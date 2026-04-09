@@ -5,6 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Gestor Financiero</title>
     
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#8A05BE">
+    <link rel="apple-touch-icon" href="assets/img/favicon.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Finanzas">
+    
     <link rel="icon" href="assets/img/favicon.png" type="image/png">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <link rel="stylesheet" href="assets/css/styles.css">
@@ -15,6 +22,7 @@
         <header>
             <h1>Gestor Financiero</h1>
             <div class="header-actions">
+                <button class="theme-btn" onclick="abrirAjustes()" title="Ajustes de Facturación"><i class="fa-solid fa-gear"></i></button>
                 <button class="theme-btn" onclick="abrirModalHistorial()" title="Ver Historial"><i class="fa-solid fa-clock-rotate-left"></i></button>
                 <button class="theme-btn" onclick="exportData()" title="Descargar Respaldo"><i class="fa-solid fa-download"></i></button>
                 <button class="theme-btn" onclick="document.getElementById('import-file').click()" title="Subir Respaldo"><i class="fa-solid fa-upload"></i></button>
@@ -27,6 +35,11 @@
             <div class="stat-card">
                 <div class="stat-title">Deuda Acumulada</div>
                 <div class="stat-value text-purple" id="total-deuda-global">$0.00</div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-title" id="proximo-pago-title">Total a Pagar</div>
+                <div class="stat-value" id="proximo-pago">$0.00</div>
             </div>
             
             <div class="stat-card">
@@ -44,11 +57,6 @@
                     <button class="btn-action-fa btn-edit-fa" onclick="abrirModalFijos()" title="Gestionar Suscripciones"><i class="fa-solid fa-list"></i></button>
                 </div>
             </div>
-
-            <div class="stat-card">
-                <div class="stat-title" id="proximo-pago-title">Próximo Pago Total</div>
-                <div class="stat-value" id="proximo-pago">$0.00</div>
-            </div>
         </section>
 
         <section class="months-panel" id="months-container"></section>
@@ -60,21 +68,11 @@
                 <h2 style="margin: 0; font-size: 1.2rem;" id="modal-trans-title">Añadir</h2>
                 <button class="btn-action-fa btn-edit-fa" onclick="cerrarModalTransaccion()"><i class="fa-solid fa-xmark"></i></button>
             </div>
-            
-            <div class="transaction-type-tabs">
-                <div class="t-tab active" id="tab-gasto" onclick="setTransactionType('gasto')">Concepto</div>
-                <div class="t-tab" id="tab-pago" onclick="setTransactionType('pago')">Abono/Pago</div>
-            </div>
-
-            <div class="form-group" style="display: none;">
-                <select id="trans-mes" class="form-input"></select>
-            </div>
 
             <div id="form-gasto">
                 <input type="text" id="trans-concepto" class="form-input mb-3" placeholder="Concepto (Ej. Celular, Cena)" onkeypress="handleModalEnter(event)">
                 <div class="form-row mb-3">
                     <input type="number" id="trans-monto-gasto" class="form-input" placeholder="Monto ($)" onkeypress="handleModalEnter(event)">
-                    
                     <select id="trans-msi" class="form-input" title="Meses a diferir" onkeypress="handleModalEnter(event)">
                         <option value="1">Contado (1 Mes)</option>
                         <option value="3">3 Meses</option>
@@ -89,10 +87,10 @@
             </div>
 
             <div id="form-pago" style="display: none;">
-                <input type="number" id="trans-monto-pago" class="form-input mb-3" placeholder="Monto ($)" onkeypress="handleModalEnter(event)">
+                <input type="number" id="trans-monto-pago" class="form-input mb-3" placeholder="Cantidad a abonar ($)" onkeypress="handleModalEnter(event)">
             </div>
 
-            <button class="btn-auth" id="btn-guardar-trans" onclick="procesarTransaccionModal()">Guardar</button>
+            <button class="btn-auth" onclick="procesarTransaccionModal()">Guardar</button>
         </div>
     </div>
 
@@ -121,6 +119,15 @@
         </div>
     </div>
 
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js')
+                    .then(reg => console.log('PWA Lista y funcionando offline'))
+                    .catch(err => console.log('Error PWA: ', err));
+            });
+        }
+    </script>
     <script src="assets/js/app.js"></script>
 </body>
 </html>

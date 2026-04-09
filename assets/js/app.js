@@ -14,8 +14,8 @@ themeBtn.addEventListener('click', () => {
     localStorage.setItem(THEME_KEY, newTheme); 
 });
 
-// --- 2. BASE DE DATOS LOCAL Y RESCATE MÁXIMO ---
-const DB_KEY_DATA = 'miGestorFinancieroData_v20'; // Nueva caja fuerte
+// --- 2. BASE DE DATOS LOCAL, FECHAS Y RESCATE ---
+const DB_KEY_DATA = 'miGestorFinancieroData_v22'; // Clave actualizada segura
 const DB_KEY_INCOME = 'miGestorIngreso_v2'; 
 const DB_KEY_FIJOS = 'miGestorFijos_v2'; 
 const DB_KEY_HISTORY = 'miGestorHistory_v2'; 
@@ -32,7 +32,10 @@ let activeTransactionMonth = 0;
 let currentTransactionType = 'gasto'; 
 let isProcessing = false; 
 
-// Tus datos originales exactos
+// AJUSTES DE FACTURACIÓN
+let diaCorte = parseInt(localStorage.getItem('miGestorCorte')) || 28;
+let diaLimite = parseInt(localStorage.getItem('miGestorLimite')) || 8;
+
 const nuSchedule = {
     '2026-03': 3583.50, '2026-04': 2967.29, '2026-05': 2967.28,
     '2026-06': 1101.00, '2026-07': 1101.00, '2026-08': 1101.00,
@@ -44,8 +47,7 @@ function getMonthName(m) { const names = ['Enero', 'Febrero', 'Marzo', 'Abril', 
 
 function createMonthObject(y, m) {
     const id = `${y}-${m.toString().padStart(2, '0')}`;
-    // Aquí estaba el error. Ahora leerá correctamente tu calendario oficial.
-    return { id: id, nombre: getMonthName(m), deudas: { 'Nu': nuSchedule[id] || 0, 'BBVA': 0, 'Mercado Pago': 0 }, pagos: [], gastosPersonales: [] };
+    return { id: id, nombre: getMonthName(m), deudas: { 'Nu': nuSchedule[id] || 0, 'BBVA': 0, 'Mercado Pago': 0 }, pagos: [], gastosPersonales: [], pagado: false };
 }
 
 function generateInitialData() {
@@ -63,15 +65,11 @@ function generateInitialData() {
 function syncMonths() {
     let savedData = localStorage.getItem(DB_KEY_DATA);
     
-    // ¡PROTOCOLO DE RESCATE! Busca en todas tus versiones pasadas por si la v19 te borró
+    // PROTOCOLO DE RESCATE MÁXIMO
     if (!savedData) {
-        for (let i = 19; i >= 7; i--) {
+        for (let i = 21; i >= 14; i--) {
             let rescate = localStorage.getItem(`miGestorFinancieroData_v${i}`);
-            if (rescate && rescate.length > 20) { 
-                savedData = rescate;
-                console.log("¡Datos rescatados de la versión v" + i + "!");
-                break;
-            }
+            if (rescate && rescate.length > 20) { savedData = rescate; break; }
         }
     }
 
@@ -80,7 +78,6 @@ function syncMonths() {
     const now = new Date();
     const currentYear = now.getFullYear();
     const currentMonthNum = now.getMonth() + 1; 
-    const currentId = `${currentYear}-${currentMonthNum.toString().padStart(2, '0')}`;
 
     if (!financeData || !Array.isArray(financeData) || financeData.length === 0) {
         financeData = generateInitialData();
@@ -97,20 +94,29 @@ function syncMonths() {
                 d.nombre = getMonthName(m);
             }
             d.nombre = d.nombre.replace(' (Actual)', '').trim();
-            
-            // Si el mes perdió las deudas por culpa de la v19, las recuperamos a la fuerza
             if (!d.deudas) d.deudas = { 'Nu': nuSchedule[d.id] || 0, 'BBVA': 0, 'Mercado Pago': 0 };
             else if (d.deudas['Nu'] === 0 && nuSchedule[d.id]) d.deudas['Nu'] = nuSchedule[d.id];
         });
 
-        // Limpiar meses pasados (Historial)
-        while(financeData.length > 0 && financeData[0].id < currentId) {
-            let dropped = financeData.shift();
-            historialData.push(dropped); 
-            localStorage.setItem(DB_KEY_HISTORY, JSON.stringify(historialData));
+        // LIMPIEZA INTELIGENTE POR LÍMITE DE PAGO
+        while(financeData.length > 0) {
+            let first = financeData[0];
+            let parts = first.id.split('-');
+            let y = parseInt(parts[0]);
+            let m = parseInt(parts[1]); 
+            
+            // El límite de pago es el mes siguiente (ej. Corte 28 Marzo, Límite 8 Abril)
+            let limiteDate = new Date(y, m, diaLimite, 23, 59, 59);
+
+            if (first.pagado === true || now > limiteDate) {
+                let dropped = financeData.shift();
+                historialData.push(dropped); 
+                localStorage.setItem(DB_KEY_HISTORY, JSON.stringify(historialData));
+            } else {
+                break; 
+            }
         }
         
-        // Regenerar meses faltantes
         while(financeData.length < 10) {
             if(financeData.length === 0) {
                 financeData.push(createMonthObject(currentYear, currentMonthNum));
@@ -132,7 +138,7 @@ function saveData() {
     localStorage.setItem(DB_KEY_FIJOS, JSON.stringify(gastosFijos));
 }
 
-// --- 3. RESPALDO (IMPORT/EXPORT) ---
+// --- 3. RESPALDO Y AJUSTES ---
 window.exportData = function() {
     const dataToSave = { data: financeData, ingreso: ingresoSemanalBase, fijos: gastosFijos, historial: historialData };
     const blob = new Blob([JSON.stringify(dataToSave)], {type: "application/json"});
@@ -155,6 +161,30 @@ window.importData = function(event) {
     reader.readAsText(file);
 }
 
+window.abrirAjustes = function() {
+    let c = prompt("Día de Corte de tus tarjetas (Ej. 28):", diaCorte);
+    if(c && !isNaN(parseInt(c))) {
+        diaCorte = parseInt(c);
+        localStorage.setItem('miGestorCorte', diaCorte);
+    }
+    let l = prompt("Día Límite de Pago (Mes siguiente, Ej. 8):", diaLimite);
+    if(l && !isNaN(parseInt(l))) {
+        diaLimite = parseInt(l);
+        localStorage.setItem('miGestorLimite', diaLimite);
+    }
+    syncMonths(); 
+    renderCards();
+}
+
+window.marcarMesPagado = function(idx) {
+    if(confirm("¿Estás seguro de marcar este mes como pagado?\nSe moverá a tu Historial automáticamente.")) {
+        financeData[idx].pagado = true;
+        saveData();
+        syncMonths();
+        renderCards();
+    }
+}
+
 // --- 4. RENDERIZADO PRINCIPAL DE TARJETAS ---
 window.toggleAccordion = function(id) { 
     accordionState[id] = accordionState[id] === false ? true : false; 
@@ -169,6 +199,7 @@ function renderCards() {
 
     let sumaDeTodoElAno = 0;
     const ingresoMensual = ingresoSemanalBase * 4;
+    const now = new Date();
 
     financeData.forEach((data, index) => {
         let sumaGastosMes = 0; let sumaPagosMes = 0;
@@ -224,6 +255,7 @@ function renderCards() {
         });
         if (!listaPagosHtml) listaPagosHtml = '<div style="text-align: center; color: var(--text-secondary); font-size: 0.85rem;">Aún no hay abonos</div>';
 
+        // Cálculos Globales (Suma pura, nada de ajustes manuales)
         sumaDeTodoElAno += (sumaTodasTarjetasMes + data.gastosPersonales.reduce((a,g)=>a+g.monto,0) - sumaPagosMes);
         
         let totalEsperadoMes = sumaTodasTarjetasMes + sumaGastosMes;
@@ -241,12 +273,16 @@ function renderCards() {
         }
 
         let partesId = (data.id || "").split('-');
-        let yearStr = partesId[0] || new Date().getFullYear();
+        let yNum = parseInt(partesId[0]);
+        let mNum = parseInt(partesId[1]);
+        
         let mName = data.nombre;
-        let nombreBase = `${mName} ${yearStr}`;
+        let nombreBase = `${mName} ${yNum}`;
         let tituloMesDisplay = index === 0 ? `${nombreBase} (Actual)` : nombreBase;
         
         let consejoSemanalHtml = '';
+        let btnPagarHtml = '';
+
         if (index === 0) {
             document.getElementById('proximo-pago-title').innerText = `Total a Pagar (${nombreBase})`;
             document.getElementById('proximo-pago').innerText = formatMoney(totalRestanteMes);
@@ -267,6 +303,13 @@ function renderCards() {
                         </div>
                     `;
                 }
+            }
+
+            // Mostrar el botón mágico de pago si estamos en la ventana de pago
+            let corteDate = new Date(yNum, mNum - 1, diaCorte);
+            let limiteDate = new Date(yNum, mNum, diaLimite, 23, 59, 59);
+            if (now >= corteDate && now <= limiteDate) {
+                btnPagarHtml = `<button class="btn-pay-month" onclick="marcarMesPagado(${index})"><i class="fa-solid fa-check-double"></i> Marcar ${mName} como Pagado</button>`;
             }
         }
 
@@ -316,6 +359,7 @@ function renderCards() {
                 <div class="total-row"><span class="total-title">Total a Pagar</span><span class="total-value" style="color: ${totalTextColor};">${formatMoney(totalRestanteMes)}</span></div>
                 <div class="progress-container"><div class="progress-bar ${progressColorClass}" style="width: ${porcentajeProgreso}%"></div></div>
                 <div class="progress-text">${porcentajeProgreso.toFixed(0)}% Cubierto</div>
+                ${btnPagarHtml}
             </div>`;
         container.insertAdjacentHTML('beforeend', cardHtml);
     });
@@ -331,7 +375,9 @@ window.abrirModalDesdeSeccion = function(mesIdx, tipo) {
     let yStr = (financeData[mesIdx].id || "").split('-')[0] || new Date().getFullYear();
     let name = mesIdx === 0 ? `${mName} ${yStr} (Actual)` : `${mName} ${yStr}`;
     
-    document.getElementById('modal-trans-title').innerText = tipo === 'gasto' ? `Añadir Gasto en ${name}` : `Abonar a ${name}`;
+    document.getElementById('modal-trans-title').innerText = tipo === 'gasto' ? `Añadir Concepto en ${name}` : `Abonar a ${name}`;
+    
+    // Mostramos solo el div que necesitamos sin usar pestañas
     document.getElementById('form-gasto').style.display = tipo === 'gasto' ? 'block' : 'none';
     document.getElementById('form-pago').style.display = tipo === 'pago' ? 'block' : 'none';
     currentTransactionType = tipo;
@@ -345,14 +391,6 @@ window.abrirModalDesdeSeccion = function(mesIdx, tipo) {
 }
 
 window.cerrarModalTransaccion = function() { document.getElementById('modal-transaccion').classList.remove('active'); }
-window.setTransactionType = function(type) {
-    currentTransactionType = type;
-    document.getElementById('tab-gasto').classList.toggle('active', type === 'gasto');
-    document.getElementById('tab-pago').classList.toggle('active', type === 'pago');
-    document.getElementById('form-gasto').style.display = type === 'gasto' ? 'block' : 'none';
-    document.getElementById('form-pago').style.display = type === 'pago' ? 'block' : 'none';
-    document.getElementById('modal-trans-title').innerText = type === 'gasto' ? 'Añadir Concepto' : 'Añadir Abono';
-}
 
 window.procesarTransaccionModal = function() {
     if(isProcessing) return;
@@ -395,15 +433,11 @@ window.procesarTransaccionModal = function() {
     }
     
     saveData(); renderCards(); cerrarModalTransaccion();
-    setTimeout(() => { isProcessing = false; }, 300); // Candado de 300ms anti "Eco"
+    setTimeout(() => { isProcessing = false; }, 300);
 }
 
-window.handleModalEnter = function(e) {
-    if (e.key === 'Enter') procesarTransaccionModal();
-}
-window.handleCardEnter = function(e, mesIdx, banco) {
-    if (e.key === 'Enter') guardarEdicionTarjeta(mesIdx, banco);
-}
+window.handleModalEnter = function(e) { if (e.key === 'Enter') procesarTransaccionModal(); }
+window.handleCardEnter = function(e, mesIdx, banco) { if (e.key === 'Enter') guardarEdicionTarjeta(mesIdx, banco); }
 
 // --- 6. FUNCIONES DE EDICIÓN Y ELIMINACIÓN DE TARJETAS ---
 window.cambiarTab = function(mesIdx, tabName) { activeTabState[mesIdx] = tabName; editingCardIndex = null; renderCards(); }
@@ -414,8 +448,16 @@ window.guardarEdicionTarjeta = function(mesIdx, banco) {
     const v = parseFloat(input.value);
     if(!isNaN(v) && v >= 0) { financeData[mesIdx].deudas[banco] = v; saveData(); editingCardIndex = null; renderCards(); }
 }
-window.eliminarGasto = function(m, i) { financeData[m].gastosPersonales.splice(i, 1); saveData(); renderCards(); }
-window.eliminarPago = function(m, i) { financeData[m].pagos.splice(i, 1); saveData(); renderCards(); }
+window.eliminarGasto = function(m, i) { 
+    if(confirm("¿Estás seguro de eliminar este concepto?")) {
+        financeData[m].gastosPersonales.splice(i, 1); saveData(); renderCards(); 
+    }
+}
+window.eliminarPago = function(m, i) { 
+    if(confirm("¿Estás seguro de eliminar este abono?")) {
+        financeData[m].pagos.splice(i, 1); saveData(); renderCards(); 
+    }
+}
 
 // --- 7. MODALES SECUNDARIOS (FIJOS E HISTORIAL) ---
 const modalFijos = document.getElementById('modal-fijos');
