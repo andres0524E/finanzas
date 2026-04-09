@@ -15,7 +15,7 @@ themeBtn.addEventListener('click', () => {
 });
 
 // --- 2. BASE DE DATOS LOCAL, FECHAS Y RESCATE ---
-const DB_KEY_DATA = 'miGestorFinancieroData_v22'; // Clave actualizada segura
+const DB_KEY_DATA = 'miGestorFinancieroData_v22'; 
 const DB_KEY_INCOME = 'miGestorIngreso_v2'; 
 const DB_KEY_FIJOS = 'miGestorFijos_v2'; 
 const DB_KEY_HISTORY = 'miGestorHistory_v2'; 
@@ -65,7 +65,6 @@ function generateInitialData() {
 function syncMonths() {
     let savedData = localStorage.getItem(DB_KEY_DATA);
     
-    // PROTOCOLO DE RESCATE MÁXIMO
     if (!savedData) {
         for (let i = 21; i >= 14; i--) {
             let rescate = localStorage.getItem(`miGestorFinancieroData_v${i}`);
@@ -105,7 +104,7 @@ function syncMonths() {
             let y = parseInt(parts[0]);
             let m = parseInt(parts[1]); 
             
-            // El límite de pago es el mes siguiente (ej. Corte 28 Marzo, Límite 8 Abril)
+            // Límite: Día 8 del MES SIGUIENTE al facturado
             let limiteDate = new Date(y, m, diaLimite, 23, 59, 59);
 
             if (first.pagado === true || now > limiteDate) {
@@ -138,7 +137,7 @@ function saveData() {
     localStorage.setItem(DB_KEY_FIJOS, JSON.stringify(gastosFijos));
 }
 
-// --- 3. RESPALDO Y AJUSTES ---
+// --- 3. RESPALDO Y CONFIRMACIONES ---
 window.exportData = function() {
     const dataToSave = { data: financeData, ingreso: ingresoSemanalBase, fijos: gastosFijos, historial: historialData };
     const blob = new Blob([JSON.stringify(dataToSave)], {type: "application/json"});
@@ -161,28 +160,57 @@ window.importData = function(event) {
     reader.readAsText(file);
 }
 
-window.abrirAjustes = function() {
-    let c = prompt("Día de Corte de tus tarjetas (Ej. 28):", diaCorte);
-    if(c && !isNaN(parseInt(c))) {
-        diaCorte = parseInt(c);
-        localStorage.setItem('miGestorCorte', diaCorte);
-    }
-    let l = prompt("Día Límite de Pago (Mes siguiente, Ej. 8):", diaLimite);
-    if(l && !isNaN(parseInt(l))) {
-        diaLimite = parseInt(l);
-        localStorage.setItem('miGestorLimite', diaLimite);
-    }
-    syncMonths(); 
-    renderCards();
+// --- SISTEMA DE MODAL UNIVERSAL PARA CONFIRMACIONES ---
+let actionToConfirm = null;
+
+function abrirModalConfirmacion(titulo, mensaje, actionCallback, colorBoton = 'var(--accent-purple)') {
+    document.getElementById('confirm-title').innerText = titulo;
+    document.getElementById('confirm-msg').innerText = mensaje;
+    document.getElementById('btn-confirm-action').style.backgroundColor = colorBoton;
+    actionToConfirm = actionCallback;
+    document.getElementById('modal-confirmacion').classList.add('active');
 }
 
-window.marcarMesPagado = function(idx) {
-    if(confirm("¿Estás seguro de marcar este mes como pagado?\nSe moverá a tu Historial automáticamente.")) {
-        financeData[idx].pagado = true;
-        saveData();
-        syncMonths();
-        renderCards();
-    }
+window.cerrarModalConfirmacion = function() {
+    document.getElementById('modal-confirmacion').classList.remove('active');
+    actionToConfirm = null;
+}
+
+document.getElementById('btn-confirm-action').addEventListener('click', () => {
+    if (actionToConfirm) actionToConfirm();
+    cerrarModalConfirmacion();
+});
+
+// --- AJUSTES E INGRESOS MODALES ---
+window.abrirModalAjustes = function() {
+    document.getElementById('input-dia-corte').value = diaCorte;
+    document.getElementById('input-dia-limite').value = diaLimite;
+    document.getElementById('modal-ajustes').classList.add('active');
+}
+window.cerrarModalAjustes = function() { document.getElementById('modal-ajustes').classList.remove('active'); }
+window.guardarAjustes = function() {
+    let c = parseInt(document.getElementById('input-dia-corte').value);
+    let l = parseInt(document.getElementById('input-dia-limite').value);
+    if(c >= 1 && c <= 31 && l >= 1 && l <= 31) {
+        diaCorte = c; diaLimite = l;
+        localStorage.setItem('miGestorCorte', diaCorte);
+        localStorage.setItem('miGestorLimite', diaLimite);
+        syncMonths(); renderCards(); cerrarModalAjustes();
+    } else { alert("Fechas inválidas."); }
+}
+
+window.abrirModalIngreso = function() {
+    document.getElementById('input-ingreso-semanal').value = ingresoSemanalBase;
+    document.getElementById('modal-ingreso').classList.add('active');
+}
+window.cerrarModalIngreso = function() { document.getElementById('modal-ingreso').classList.remove('active'); }
+window.guardarIngreso = function() {
+    let v = parseFloat(document.getElementById('input-ingreso-semanal').value);
+    if(!isNaN(v) && v >= 0) {
+        ingresoSemanalBase = v;
+        localStorage.setItem(DB_KEY_INCOME, ingresoSemanalBase);
+        renderCards(); cerrarModalIngreso();
+    } else { alert("Monto inválido."); }
 }
 
 // --- 4. RENDERIZADO PRINCIPAL DE TARJETAS ---
@@ -238,24 +266,23 @@ function renderCards() {
         }
 
         let listaGastosHtml = '';
-        gastosFijos.forEach((fijo) => {
+        gastosFijos.forEach((fijo, fIdx) => {
             sumaGastosMes += fijo.monto;
-            listaGastosHtml += `<div class="list-item" style="opacity: 0.85;"><span><i class="fa-solid fa-repeat text-yellow" style="margin-right: 8px;"></i>${fijo.concepto}</span><strong>${formatMoney(fijo.monto)}</strong></div>`;
+            listaGastosHtml += `<div class="list-item" style="opacity: 0.85;"><span><i class="fa-solid fa-repeat text-yellow" style="margin-right: 8px;"></i>${fijo.concepto}</span><div style="display:flex; align-items:center;"><strong>${formatMoney(fijo.monto)}</strong><button class="btn-delete-fa" onclick="eliminarGastoFijo(${fIdx})"><i class="fa-solid fa-trash-can"></i></button></div></div>`;
         });
         data.gastosPersonales.forEach((gasto, gIdx) => {
             sumaGastosMes += gasto.monto;
-            listaGastosHtml += `<div class="list-item"><span><i class="fa-solid fa-cart-shopping text-red" style="margin-right: 8px;"></i>${gasto.concepto}</span><div style="display: flex; align-items: center;"><strong>${formatMoney(gasto.monto)}</strong><button class="btn-delete-fa" onclick="eliminarGasto(${index}, ${gIdx})"><i class="fa-solid fa-trash-can"></i></button></div></div>`;
+            listaGastosHtml += `<div class="list-item"><span><i class="fa-solid fa-cart-shopping text-red" style="margin-right: 8px;"></i>${gasto.concepto}</span><div style="display: flex; align-items: center;"><strong>${formatMoney(gasto.monto)}</strong><button class="btn-delete-fa" onclick="promptEliminarGasto(${index}, ${gIdx})"><i class="fa-solid fa-trash-can"></i></button></div></div>`;
         });
         if (!listaGastosHtml) listaGastosHtml = '<div style="text-align: center; color: var(--text-secondary); font-size: 0.85rem;">Sin gastos este mes</div>';
 
         let listaPagosHtml = '';
         data.pagos.forEach((pago, pIdx) => {
             sumaPagosMes += pago.monto;
-            listaPagosHtml += `<div class="list-item"><span><i class="fa-solid fa-circle-dollar-to-slot text-green" style="margin-right: 8px;"></i>Pago #${pIdx + 1}</span><div style="display: flex; align-items: center;"><strong class="text-green">- ${formatMoney(pago.monto)}</strong><button class="btn-delete-fa" onclick="eliminarPago(${index}, ${pIdx})"><i class="fa-solid fa-trash-can"></i></button></div></div>`;
+            listaPagosHtml += `<div class="list-item"><span><i class="fa-solid fa-circle-dollar-to-slot text-green" style="margin-right: 8px;"></i>Pago #${pIdx + 1}</span><div style="display: flex; align-items: center;"><strong class="text-green">- ${formatMoney(pago.monto)}</strong><button class="btn-delete-fa" onclick="promptEliminarPago(${index}, ${pIdx})"><i class="fa-solid fa-trash-can"></i></button></div></div>`;
         });
         if (!listaPagosHtml) listaPagosHtml = '<div style="text-align: center; color: var(--text-secondary); font-size: 0.85rem;">Aún no hay abonos</div>';
 
-        // Cálculos Globales (Suma pura, nada de ajustes manuales)
         sumaDeTodoElAno += (sumaTodasTarjetasMes + data.gastosPersonales.reduce((a,g)=>a+g.monto,0) - sumaPagosMes);
         
         let totalEsperadoMes = sumaTodasTarjetasMes + sumaGastosMes;
@@ -265,17 +292,14 @@ function renderCards() {
         let progressColorClass = 'safe'; 
         let totalTextColor = 'var(--text-primary)';
         if (totalRestanteMes > ingresoMensual) {
-            progressColorClass = 'danger'; 
-            totalTextColor = 'var(--accent-red)';
+            progressColorClass = 'danger'; totalTextColor = 'var(--accent-red)';
         } else if (totalRestanteMes > ingresoMensual * 0.8) {
-            progressColorClass = 'warn'; 
-            totalTextColor = 'var(--accent-yellow)';
+            progressColorClass = 'warn'; totalTextColor = 'var(--accent-yellow)';
         }
 
         let partesId = (data.id || "").split('-');
         let yNum = parseInt(partesId[0]);
         let mNum = parseInt(partesId[1]);
-        
         let mName = data.nombre;
         let nombreBase = `${mName} ${yNum}`;
         let tituloMesDisplay = index === 0 ? `${nombreBase} (Actual)` : nombreBase;
@@ -289,27 +313,18 @@ function renderCards() {
             if (totalRestanteMes > 0) {
                 let ahorro = totalRestanteMes / 4;
                 if (ahorro <= ingresoSemanalBase) {
-                    consejoSemanalHtml = `
-                        <div class="weekly-tip-neutral">
-                            <i class="fa-solid fa-lightbulb" style="margin-right: 6px;"></i> 
-                            Meta Semanal: Guarda <strong>${formatMoney(ahorro)}</strong> de tus ingresos. Te quedan libres <strong>${formatMoney(ingresoSemanalBase - ahorro)}</strong>.
-                        </div>
-                    `;
+                    consejoSemanalHtml = `<div class="weekly-tip-neutral"><i class="fa-solid fa-lightbulb" style="margin-right: 6px;"></i> Meta Semanal: Guarda <strong>${formatMoney(ahorro)}</strong> de tus ingresos. Te quedan libres <strong>${formatMoney(ingresoSemanalBase - ahorro)}</strong>.</div>`;
                 } else {
-                    consejoSemanalHtml = `
-                        <div class="weekly-tip">
-                            <i class="fa-solid fa-triangle-exclamation" style="margin-right: 6px;"></i> 
-                            Cuidado: Tus deudas del mes superan tus ingresos semanales de ${formatMoney(ingresoSemanalBase)}.
-                        </div>
-                    `;
+                    consejoSemanalHtml = `<div class="weekly-tip"><i class="fa-solid fa-triangle-exclamation" style="margin-right: 6px;"></i> Cuidado: Tus deudas del mes superan tus ingresos semanales de ${formatMoney(ingresoSemanalBase)}.</div>`;
                 }
             }
 
-            // Mostrar el botón mágico de pago si estamos en la ventana de pago
-            let corteDate = new Date(yNum, mNum - 1, diaCorte);
-            let limiteDate = new Date(yNum, mNum, diaLimite, 23, 59, 59);
+            // BOTÓN MARCAR COMO PAGADO (Ventana Inteligente)
+            let corteDate = new Date(yNum, mNum - 1, diaCorte); // Corte este mes
+            let limiteDate = new Date(yNum, mNum, diaLimite, 23, 59, 59); // Límite siguiente mes
+            
             if (now >= corteDate && now <= limiteDate) {
-                btnPagarHtml = `<button class="btn-pay-month" onclick="marcarMesPagado(${index})"><i class="fa-solid fa-check-double"></i> Marcar ${mName} como Pagado</button>`;
+                btnPagarHtml = `<button class="btn-pay-month" onclick="promptMarcarMes(${index}, '${mName}')"><i class="fa-solid fa-check-double"></i> Marcar ${mName} como Pagado</button>`;
             }
         }
 
@@ -367,41 +382,31 @@ function renderCards() {
     document.getElementById('total-deuda-global').innerText = formatMoney(sumaDeTodoElAno);
 }
 
-// --- 5. LOGICA DEL MODAL DE TRANSACCIÓN Y ENTER KEY ---
+// --- 5. LOGICA DE MODALES DE TRANSACCIÓN Y CONFIRMACIONES ---
 window.abrirModalDesdeSeccion = function(mesIdx, tipo) {
     activeTransactionMonth = mesIdx;
-    
     let mName = financeData[mesIdx].nombre;
     let yStr = (financeData[mesIdx].id || "").split('-')[0] || new Date().getFullYear();
     let name = mesIdx === 0 ? `${mName} ${yStr} (Actual)` : `${mName} ${yStr}`;
     
     document.getElementById('modal-trans-title').innerText = tipo === 'gasto' ? `Añadir Concepto en ${name}` : `Abonar a ${name}`;
-    
-    // Mostramos solo el div que necesitamos sin usar pestañas
     document.getElementById('form-gasto').style.display = tipo === 'gasto' ? 'block' : 'none';
     document.getElementById('form-pago').style.display = tipo === 'pago' ? 'block' : 'none';
     currentTransactionType = tipo;
     
     document.getElementById('modal-transaccion').classList.add('active');
-    
-    setTimeout(() => {
-        if(tipo === 'gasto') document.getElementById('trans-concepto').focus();
-        else document.getElementById('trans-monto-pago').focus();
-    }, 100);
+    setTimeout(() => { if(tipo === 'gasto') document.getElementById('trans-concepto').focus(); else document.getElementById('trans-monto-pago').focus(); }, 100);
 }
 
 window.cerrarModalTransaccion = function() { document.getElementById('modal-transaccion').classList.remove('active'); }
 
 window.procesarTransaccionModal = function() {
-    if(isProcessing) return;
-    isProcessing = true;
-
+    if(isProcessing) return; isProcessing = true;
     const idx = activeTransactionMonth;
 
     if (currentTransactionType === 'pago') {
         const monto = parseFloat(document.getElementById('trans-monto-pago').value);
         if (isNaN(monto) || monto <= 0) { alert("Ingresa una cantidad válida"); isProcessing = false; return; }
-        
         financeData[idx].pagos.push({ monto: monto });
         document.getElementById('trans-monto-pago').value = '';
         accordionState[`pagos-${idx}`] = true;
@@ -409,11 +414,9 @@ window.procesarTransaccionModal = function() {
         const concepto = document.getElementById('trans-concepto').value.trim() || 'Gasto';
         const monto = parseFloat(document.getElementById('trans-monto-gasto').value);
         const msi = parseInt(document.getElementById('trans-msi').value) || 1;
-        
         if (isNaN(monto) || monto <= 0) { alert("Ingresa una cantidad válida"); isProcessing = false; return; }
 
         const montoMensual = monto / msi;
-
         for (let i = 0; i < msi; i++) {
             let tIdx = idx + i;
             while(tIdx >= financeData.length) {
@@ -425,38 +428,39 @@ window.procesarTransaccionModal = function() {
             let etq = msi > 1 ? `${concepto} (${i+1}/${msi})` : concepto;
             financeData[tIdx].gastosPersonales.push({ concepto: etq, monto: montoMensual });
         }
-        
-        document.getElementById('trans-concepto').value = '';
-        document.getElementById('trans-monto-gasto').value = '';
-        document.getElementById('trans-msi').value = '1';
+        document.getElementById('trans-concepto').value = ''; document.getElementById('trans-monto-gasto').value = ''; document.getElementById('trans-msi').value = '1';
         accordionState[`gastos-${idx}`] = true;
     }
     
     saveData(); renderCards(); cerrarModalTransaccion();
-    setTimeout(() => { isProcessing = false; }, 300);
+    setTimeout(() => { isProcessing = false; }, 300); 
 }
-
 window.handleModalEnter = function(e) { if (e.key === 'Enter') procesarTransaccionModal(); }
 window.handleCardEnter = function(e, mesIdx, banco) { if (e.key === 'Enter') guardarEdicionTarjeta(mesIdx, banco); }
 
-// --- 6. FUNCIONES DE EDICIÓN Y ELIMINACIÓN DE TARJETAS ---
 window.cambiarTab = function(mesIdx, tabName) { activeTabState[mesIdx] = tabName; editingCardIndex = null; renderCards(); }
 window.editarTarjeta = function(mesIdx) { editingCardIndex = mesIdx; renderCards(); }
 window.cancelarEdicionTarjeta = function() { editingCardIndex = null; renderCards(); }
 window.guardarEdicionTarjeta = function(mesIdx, banco) {
-    const input = document.getElementById(`edit-monto-${mesIdx}`);
-    const v = parseFloat(input.value);
+    const v = parseFloat(document.getElementById(`edit-monto-${mesIdx}`).value);
     if(!isNaN(v) && v >= 0) { financeData[mesIdx].deudas[banco] = v; saveData(); editingCardIndex = null; renderCards(); }
 }
-window.eliminarGasto = function(m, i) { 
-    if(confirm("¿Estás seguro de eliminar este concepto?")) {
-        financeData[m].gastosPersonales.splice(i, 1); saveData(); renderCards(); 
-    }
+
+// CONFIRMACIONES ELEGANTES
+window.promptEliminarGasto = function(m, i) {
+    abrirModalConfirmacion("Eliminar Concepto", "¿Estás seguro de borrar este gasto?", () => {
+        financeData[m].gastosPersonales.splice(i, 1); saveData(); renderCards();
+    }, "var(--accent-red)");
 }
-window.eliminarPago = function(m, i) { 
-    if(confirm("¿Estás seguro de eliminar este abono?")) {
-        financeData[m].pagos.splice(i, 1); saveData(); renderCards(); 
-    }
+window.promptEliminarPago = function(m, i) {
+    abrirModalConfirmacion("Eliminar Abono", "¿Estás seguro de borrar este abono?", () => {
+        financeData[m].pagos.splice(i, 1); saveData(); renderCards();
+    }, "var(--accent-red)");
+}
+window.promptMarcarMes = function(idx, mName) {
+    abrirModalConfirmacion(`Marcar ${mName} Pagado`, "Este mes se moverá a tu historial permanentemente.", () => {
+        financeData[idx].pagado = true; saveData(); syncMonths(); renderCards();
+    }, "var(--accent-green)");
 }
 
 // --- 7. MODALES SECUNDARIOS (FIJOS E HISTORIAL) ---
@@ -474,8 +478,11 @@ window.agregarGastoFijo = function() {
     const c = document.getElementById('nuevo-fijo-concepto').value.trim(); const m = parseFloat(document.getElementById('nuevo-fijo-monto').value);
     if(c && m>0){ gastosFijos.push({concepto:c, monto:m}); saveData(); document.getElementById('nuevo-fijo-concepto').value=''; document.getElementById('nuevo-fijo-monto').value=''; abrirModalFijos(); }
 }
-window.eliminarGastoFijo = function(i) { gastosFijos.splice(i, 1); saveData(); abrirModalFijos(); }
-document.getElementById('nuevo-fijo-monto').addEventListener('keypress', (e) => { if(e.key === 'Enter') agregarGastoFijo(); });
+window.eliminarGastoFijo = function(i) { 
+    abrirModalConfirmacion("Eliminar Suscripción", "¿Dejar de inyectar este gasto en los meses?", () => {
+        gastosFijos.splice(i, 1); saveData(); abrirModalFijos();
+    }, "var(--accent-red)");
+}
 
 window.abrirModalHistorial = function() {
     const l = document.getElementById('lista-historial-modal'); l.innerHTML = '';
@@ -489,7 +496,5 @@ window.abrirModalHistorial = function() {
     modalHistorial.classList.add('active');
 }
 window.cerrarModalHistorial = function() { modalHistorial.classList.remove('active'); }
-
-document.getElementById('btn-edit-ingreso').addEventListener('click', () => { let v = prompt("Ingreso Semanal:", ingresoSemanalBase); if(v!==null && !isNaN(v)){ ingresoSemanalBase=parseFloat(v); localStorage.setItem(DB_KEY_INCOME, ingresoSemanalBase); renderCards(); } });
 
 window.addEventListener('DOMContentLoaded', () => { syncMonths(); loadData(); renderCards(); });

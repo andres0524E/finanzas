@@ -22,7 +22,7 @@
         <header>
             <h1>Gestor Financiero</h1>
             <div class="header-actions">
-                <button class="theme-btn" onclick="abrirAjustes()" title="Ajustes de Facturación"><i class="fa-solid fa-gear"></i></button>
+                <button class="theme-btn" onclick="abrirModalAjustes()" title="Ajustes de Facturación"><i class="fa-solid fa-gear"></i></button>
                 <button class="theme-btn" onclick="abrirModalHistorial()" title="Ver Historial"><i class="fa-solid fa-clock-rotate-left"></i></button>
                 <button class="theme-btn" onclick="exportData()" title="Descargar Respaldo"><i class="fa-solid fa-download"></i></button>
                 <button class="theme-btn" onclick="document.getElementById('import-file').click()" title="Subir Respaldo"><i class="fa-solid fa-upload"></i></button>
@@ -46,7 +46,7 @@
                 <div class="stat-title">Ingreso Semanal</div>
                 <div style="display: flex; align-items: center; justify-content: space-between;">
                     <div class="stat-value text-green" id="ingreso-semanal-display">$0.00</div>
-                    <button class="btn-action-fa btn-edit-fa" id="btn-edit-ingreso" title="Editar Ingreso"><i class="fa-solid fa-pen"></i></button>
+                    <button class="btn-action-fa btn-edit-fa" onclick="abrirModalIngreso()" title="Editar Ingreso"><i class="fa-solid fa-pen"></i></button>
                 </div>
             </div>
 
@@ -68,7 +68,7 @@
                 <h2 style="margin: 0; font-size: 1.2rem;" id="modal-trans-title">Añadir</h2>
                 <button class="btn-action-fa btn-edit-fa" onclick="cerrarModalTransaccion()"><i class="fa-solid fa-xmark"></i></button>
             </div>
-
+            
             <div id="form-gasto">
                 <input type="text" id="trans-concepto" class="form-input mb-3" placeholder="Concepto (Ej. Celular, Cena)" onkeypress="handleModalEnter(event)">
                 <div class="form-row mb-3">
@@ -91,6 +91,47 @@
             </div>
 
             <button class="btn-auth" onclick="procesarTransaccionModal()">Guardar</button>
+        </div>
+    </div>
+
+    <div id="modal-ajustes" class="modal-overlay">
+        <div class="modal-content">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2 style="margin: 0; font-size: 1.2rem;">Fechas de Tarjetas</h2>
+                <button class="btn-action-fa btn-edit-fa" onclick="cerrarModalAjustes()"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="form-group">
+                <label>Día de Corte (Ej. 28):</label>
+                <input type="number" id="input-dia-corte" class="form-input mb-3" placeholder="28" min="1" max="31">
+            </div>
+            <div class="form-group">
+                <label>Día Límite de Pago (Mes sig. Ej. 8):</label>
+                <input type="number" id="input-dia-limite" class="form-input mb-3" placeholder="8" min="1" max="31">
+            </div>
+            <button class="btn-auth" onclick="guardarAjustes()">Guardar Fechas</button>
+        </div>
+    </div>
+
+    <div id="modal-ingreso" class="modal-overlay">
+        <div class="modal-content">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2 style="margin: 0; font-size: 1.2rem;">Ingreso Semanal</h2>
+                <button class="btn-action-fa btn-edit-fa" onclick="cerrarModalIngreso()"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <input type="number" id="input-ingreso-semanal" class="form-input mb-3" placeholder="$1000.00">
+            <button class="btn-auth" onclick="guardarIngreso()">Actualizar Ingreso</button>
+        </div>
+    </div>
+
+    <div id="modal-confirmacion" class="modal-overlay">
+        <div class="modal-content" style="text-align: center;">
+            <i class="fa-solid fa-triangle-exclamation text-yellow" style="font-size: 3rem; margin-bottom: 15px;"></i>
+            <h2 style="margin: 0 0 10px 0; font-size: 1.2rem;" id="confirm-title">¿Estás seguro?</h2>
+            <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 20px;" id="confirm-msg">Esta acción no se puede deshacer.</p>
+            <div style="display: flex; gap: 10px;">
+                <button class="btn-auth" style="background-color: var(--panel-bg); color: var(--text-primary); border: 1px solid var(--border-color);" onclick="cerrarModalConfirmacion()">Cancelar</button>
+                <button class="btn-auth" id="btn-confirm-action">Confirmar</button>
+            </div>
         </div>
     </div>
 
